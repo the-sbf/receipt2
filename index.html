@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Receipt</title>
+<style>
+:root{
+  --counter:#16181c; --raised:#23262c; --edge:#3a3f47; --paper:#eef0ea; --ink:#1b1d20; --faint:#6d727a;
+  --ui:#dfe2e6; --muted:#98a0aa; --stamp:#c3271d;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono","Courier New",monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--counter);color:var(--ui);font-family:var(--mono);font-size:15px;line-height:1.45;-webkit-text-size-adjust:100%}
+[hidden]{display:none!important}
+#app{height:100%;max-width:540px;margin:0 auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.top h1{font-size:16px;line-height:1.35;margin:0;font-weight:700;outline:none}
+.top p{margin:6px 0 0;color:var(--muted);font-size:13px}
+.mid{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:12px;padding:2px}
+.bot{display:flex;flex-direction:column;gap:10px}
+.bot p{margin:0;font-size:14px}
+.bot .next{color:var(--muted);font-size:13px}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--ui);outline-offset:2px}
+.slip :focus-visible{outline-color:var(--ink)}
+
+/* keys */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{background:var(--raised);border:1px solid var(--edge);border-radius:6px;padding:9px 10px;text-align:left;font-size:13px;line-height:1.3;min-height:58px;display:flex;gap:6px;align-items:flex-start}
+.tile .box{flex:none;width:1.2ch}
+.tile[aria-pressed="true"]{background:var(--paper);color:var(--ink);border-color:var(--paper)}
+.go{background:var(--paper);color:var(--ink);border:0;border-radius:6px;padding:11px 14px;font-weight:700;width:100%}
+.go[disabled]{opacity:.4;cursor:default}
+.quiet{background:none;border:1px solid var(--edge);border-radius:6px;padding:9px 14px;width:100%;color:var(--ui)}
+
+/* slip */
+.slot{height:6px;border-radius:3px;background:#0b0c0e;box-shadow:inset 0 1px 2px #000;flex:none;margin:0 6px}
+.slip{position:relative;background:var(--paper);color:var(--ink);margin:-4px 14px 12px;padding:14px 14px 10px;font-size:13px;line-height:1.5;flex:none}
+.slip::after{content:"";position:absolute;left:0;right:0;bottom:-7px;height:8px;
+  background:linear-gradient(-45deg,transparent 5px,var(--paper) 0) 0 0/10px 8px repeat-x,linear-gradient(45deg,transparent 5px,var(--paper) 0) 0 0/10px 8px repeat-x}
+.slip .hd{text-align:center;font-weight:700;letter-spacing:.14em}
+.slip .sub{text-align:center;color:var(--faint);font-size:12px}
+.slip hr{border:0;border-top:1px dashed var(--ink);margin:8px 0}
+.row{display:flex;align-items:baseline;gap:6px}
+.row .dots{flex:1;border-bottom:1px dotted var(--faint);transform:translateY(-3px);min-width:10px}
+.row.total{font-weight:700}
+.paid{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-left:2ch;color:var(--faint);min-height:22px}
+.paid .blank{letter-spacing:.02em}
+.paid button.blank{background:none;border:1px dashed var(--faint);border-radius:3px;padding:3px 8px;color:var(--ink);min-width:12ch;min-height:28px;text-align:left}
+.paid button.blank.locked{opacity:.45}
+.stamp{color:var(--stamp);border:2px solid var(--stamp);border-radius:3px;padding:1px 6px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;display:inline-block;transform:rotate(-1.5deg);overflow-wrap:anywhere}
+.stamp.hit{animation:hit .28s ease-out}
+@keyframes hit{from{transform:scale(1.7) rotate(-6deg);opacity:0}to{transform:rotate(-1.5deg);opacity:1}}
+.line{animation:feed .22s ease-out}
+@keyframes feed{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.words{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* form */
+.f{display:flex;flex-direction:column;gap:4px}
+.f label{font-size:13px;display:flex;justify-content:space-between;gap:8px}
+.f label span{color:var(--muted)}
+.f input,.f textarea{background:var(--raised);border:1px solid var(--edge);border-radius:6px;padding:9px 10px;width:100%;resize:none}
+@media (max-width:330px){.tiles{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.line,.stamp.hit{animation:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top" id="top"></div>
+  <div class="mid" id="mid"></div>
+  <div class="bot" id="bot" role="status" aria-live="polite"></div>
+</div>
+<script>
+/* ============================================================
+   THE RECEIPT · EX-05 Who Pays?
+   One file, two modes. Slide 2 opens the lesson. Slide 25 closes it:
+   save this same file as ex05-receipt-close.html, or add ?mode=close.
+   Everything a writer may want to change is in CONFIG.
+   ============================================================ */
+const CONFIG = {
+  storageKey: "ex05-receipt-picks",
+  printDelay: 300,          // milliseconds between slip lines
+  stampsBeforeLast: 3,      // how many blanks to stamp before THIS LESSON unlocks
+  lessonLine: { on: true, slip: "THIS LESSON", stamp: "a family foundation" },
+  items: [
+    { id: "maths",   tile: "Practised maths on Siyavula",        slip: "SIYAVULA MATHS", stamp: "schools and sponsors" },
+    { id: "wifi",    tile: "Used the school wifi",               slip: "SCHOOL WIFI",    stamp: "your school" },
+    { id: "library", tile: "Borrowed from a public library",     slip: "LIBRARY BOOK",   stamp: "taxes" },
+    { id: "park",    tile: "Used a public park or sports field", slip: "PARK OR FIELD",  stamp: "taxes" },
+    { id: "videos",  tile: "Watched YouTube or TikTok",          slip: "VIDEOS",         stamp: "advertisers" },
+    { id: "wiki",    tile: "Looked something up on Wikipedia",   slip: "WIKIPEDIA",      stamp: "donations" },
+    { id: "ai",      tile: "Asked a free AI chatbot",            slip: "AI CHATBOT",     stamp: "paying subscribers and investors" },
+    { id: "music",   tile: "Streamed music on a free plan",      slip: "MUSIC",          stamp: "advertisers and paying subscribers" }
+  ],
+  copy: {
+    pickTitle: "Tap what you used this week that nobody charged you for.",
+    pickSub: "Data does not count. That one you do pay for.",
+    printNone: "Print my slip",
+    slipHead: "THIS WEEK",
+    slipSub: "items used, not paid for",
+    openEnd: "Nothing on this slip was free to make. Every blank has a name. Go and find some of them.",
+    nextSlide: "Then go to the next slide.",
+    closeTitle: "Your slip is back. Tap a blank to stamp it.",
+    closeSubFull: "This is the full slip, with every item on it.",
+    saveForLast: "Save that one for last.",
+    lessonStamped: "Somebody decided this was worth paying for. So is the problem you are about to write down.",
+    toOwn: "Print one of your own",
+    ownTitle: "Now print one of your own.",
+    ownSub: "One problem near you, at school or in your community, and who would pay to solve it.",
+    fProblem: "The problem", fPaid: "Paid by", fBecause: "Because",
+    ownPrint: "Print my slip",
+    ownHead: "A PROBLEM WORTH SOLVING",
+    ownCost: "NOT FREE",
+    ownEnd: "Take a screenshot. This one is yours.",
+    change: "Change it"
+  }
+};
+
+const MODE = (/close/i.test(location.pathname.split("/").pop() || "") || /[?&]mode=close/i.test(location.search)) ? "close" : "open";
+const REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const $top = document.getElementById("top"), $mid = document.getElementById("mid"), $bot = document.getElementById("bot");
+
+function h(tag, attrs, ...kids){
+  const el = document.createElement(tag);
+  for (const k in (attrs || {})){
+    const v = attrs[k];
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") el.className = v; else if (k === "text") el.textContent = v;
+    else if (k.slice(0, 2) === "on") el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) el.append(kid);
+  return el;
+}
+function add(el, ...kids){ for (const k of kids.flat(Infinity)) if (k !== null && k !== undefined && k !== false) el.append(k); }
+function screen(title, sub){
+  $top.replaceChildren(); $mid.replaceChildren(); $bot.replaceChildren();
+  const h1 = h("h1", { tabindex: "-1", text: title });
+  add($top, h1, sub ? h("p", { text: sub }) : null);
+  $mid.scrollTop = 0;
+  h1.focus({ preventScroll: true });
+}
+function savePicks(ids){ try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(ids)); } catch (e) {} }
+function loadPicks(){
+  try {
+    const v = JSON.parse(localStorage.getItem(CONFIG.storageKey));
+    if (Array.isArray(v)) return v.filter(id => CONFIG.items.some(i => i.id === id));
+  } catch (e) {}
+  return null;
+}
+function tell(items){ try { window.parent.postMessage({ type: "ex05:receipt", mode: MODE, items: items }, "*"); } catch (e) {} }
+function row(left, right, cls){ return h("div", { class: "row line" + (cls ? " " + cls : "") }, h("span", { text: left }), h("span", { class: "dots", "aria-hidden": "true" }), h("span", { text: right })); }
+function feed(slip, nodes, done){
+  if (REDUCED){ nodes.forEach(n => slip.append(n)); done(); return; }
+  let i = 0;
+  (function step(){
+    if (i >= nodes.length){ done(); return; }
+    slip.append(nodes[i++]); $mid.scrollTop = $mid.scrollHeight;
+    setTimeout(step, CONFIG.printDelay);
+  })();
+}
+function slipLines(ids){
+  const list = CONFIG.items.filter(i => ids.includes(i.id)).map(i => ({ id: i.id, slip: i.slip, stamp: i.stamp }));
+  if (CONFIG.lessonLine.on) list.push({ id: "_lesson", slip: CONFIG.lessonLine.slip, stamp: CONFIG.lessonLine.stamp, last: true });
+  return list;
+}
+
+/* ---------------- opening ---------------- */
+function pick(){
+  const C = CONFIG.copy, chosen = new Set();
+  screen(C.pickTitle, C.pickSub);
+  const go = h("button", { class: "go", type: "button", text: C.printNone, onclick: () => printOpen([...chosen]) });
+  const tiles = h("div", { class: "tiles" }, CONFIG.items.map(it => {
+    const box = h("span", { class: "box", "aria-hidden": "true", text: "+" });
+    const b = h("button", { class: "tile", type: "button", "aria-pressed": "false", id: "tile-" + it.id }, box, h("span", { text: it.tile }));
+    b.addEventListener("click", () => {
+      const on = !chosen.has(it.id);
+      if (on) chosen.add(it.id); else chosen.delete(it.id);
+      b.setAttribute("aria-pressed", String(on)); box.textContent = on ? "✓" : "+";
+      go.textContent = chosen.size ? "Print " + chosen.size + (chosen.size === 1 ? " item" : " items") : C.printNone;
+    });
+    return b;
+  }));
+  add($mid, tiles);
+  add($bot, go);
+}
+function printOpen(ids){
+  const C = CONFIG.copy, lines = slipLines(ids);
+  savePicks(ids);
+  screen("Your slip");
+  const slip = h("div", { class: "slip", id: "slip" });
+  add($mid, h("div", { class: "slot", "aria-hidden": "true" }), slip);
+  const nodes = [h("div", { class: "hd line", text: C.slipHead }), h("div", { class: "sub line", text: C.slipSub }), h("hr", { class: "line" })];
+  const groups = lines.map(l => { const g = h("div", { class: "line", "data-id": l.id }, row(l.slip, "R0.00")); nodes.push(g); return g; });
+  nodes.push(h("hr", { class: "line" }), row("TOTAL", "R0.00", "total"));
+  feed(slip, nodes, () => setTimeout(() => {
+    groups.forEach(g => g.append(h("div", { class: "paid line" }, h("span", { text: "PAID BY:" }), h("span", { class: "blank", text: "____________" }))));
+    $mid.scrollTop = 0;
+    add($bot, h("p", { text: C.openEnd }), h("p", { class: "next", text: C.nextSlide }));
+    tell(lines.length);
+  }, REDUCED ? 0 : 900));
+}
+
+/* ---------------- closing ---------------- */
+function stampScreen(){
+  const C = CONFIG.copy, saved = loadPicks();
+  const ids = saved === null ? CONFIG.items.map(i => i.id) : saved;
+  const lines = slipLines(ids), others = lines.filter(l => !l.last);
+  const need = Math.min(CONFIG.stampsBeforeLast, others.length);
+  let stamped = 0, lessonDone = !CONFIG.lessonLine.on, offered = false;
+  screen(C.closeTitle, saved === null ? C.closeSubFull : null);
+  const slip = h("div", { class: "slip", id: "slip" }, h("div", { class: "hd", text: C.slipHead }), h("div", { class: "sub", text: C.slipSub }), h("hr"));
+  const note = h("p", {});
+  function offer(){
+    if (offered) return; offered = true;
+    add($bot, h("button", { class: "go", type: "button", id: "toOwn", text: C.toOwn, onclick: () => ownForm({}) }));
+  }
+  lines.forEach(l => {
+    const btn = h("button", { class: "blank" + (l.last && need > 0 ? " locked" : ""), type: "button", id: "blank-" + l.id, "aria-label": "Stamp who paid for " + l.slip.toLowerCase(), text: "____________" });
+    const paid = h("div", { class: "paid" }, h("span", { text: "PAID BY:" }), btn);
+    btn.addEventListener("click", () => {
+      if (l.last && stamped < need){ note.textContent = C.saveForLast; return; }
+      btn.replaceWith(h("span", { class: "stamp hit", text: l.stamp }));
+      if (l.last){ lessonDone = true; note.textContent = C.lessonStamped; }
+      else {
+        stamped++; note.textContent = "";
+        if (stamped >= need){ const lock = document.getElementById("blank-_lesson"); if (lock) lock.classList.remove("locked"); }
+      }
+      if (lessonDone && stamped >= need) offer();
+    });
+    slip.append(h("div", { "data-id": l.id }, row(l.slip, "R0.00"), paid));
+  });
+  slip.append(h("hr"), row("TOTAL", "R0.00", "total"));
+  add($mid, h("div", { class: "slot", "aria-hidden": "true" }), slip);
+  add($bot, note);
+  if (lessonDone && need === 0) offer();
+}
+function ownForm(v){
+  const C = CONFIG.copy;
+  screen(C.ownTitle, C.ownSub);
+  const mk = (id, label, max, multi) => {
+    const count = h("span", { text: "0 / " + max });
+    const input = multi ? h("textarea", { id: id, rows: "2", maxlength: String(max) }) : h("input", { id: id, type: "text", maxlength: String(max), autocomplete: "off" });
+    input.value = v[id] || ""; count.textContent = input.value.length + " / " + max;
+    input.addEventListener("input", () => { count.textContent = input.value.length + " / " + max; check(); });
+    return { wrap: h("div", { class: "f" }, h("label", { for: id }, label, count), input), input: input };
+  };
+  const p = mk("problem", C.fProblem, 120, true), b = mk("paid", C.fPaid, 60, false), w = mk("because", C.fBecause, 120, true);
+  const go = h("button", { class: "go", type: "button", id: "ownPrint", text: C.ownPrint, onclick: () => ownSlip({ problem: p.input.value.trim(), paid: b.input.value.trim(), because: w.input.value.trim() }) });
+  function check(){ go.disabled = !(p.input.value.trim() && b.input.value.trim()); }
+  add($mid, p.wrap, b.wrap, w.wrap); add($bot, go); check();
+}
+function ownSlip(v){
+  const C = CONFIG.copy;
+  screen("Your slip");
+  const slip = h("div", { class: "slip", id: "slip" });
+  add($mid, h("div", { class: "slot", "aria-hidden": "true" }), slip);
+  const nodes = [
+    h("div", { class: "hd line", text: C.ownHead }), h("hr", { class: "line" }),
+    h("div", { class: "words line", text: v.problem }), h("hr", { class: "line" }),
+    row("COST", C.ownCost),
+    h("div", { class: "paid line", style: "padding-left:0;margin-top:6px" }, h("span", { text: "PAID BY:" }), h("span", { class: "stamp hit", text: v.paid })),
+    v.because ? h("div", { class: "words line", style: "margin-top:6px", text: "BECAUSE: " + v.because }) : null
+  ].filter(Boolean);
+  feed(slip, nodes, () => {
+    $mid.scrollTop = 0;
+    add($bot, h("p", { text: C.ownEnd }), h("p", { class: "next", text: C.nextSlide }),
+      h("button", { class: "quiet", type: "button", id: "change", text: C.change, onclick: () => ownForm(v) }));
+    tell(1);
+  });
+}
+
+if (MODE === "close") stampScreen(); else pick();
+</script>
+</body>
+</html>
